@@ -18,34 +18,30 @@
  */
 package org.apache.maven.plugins.site.deploy;
 
-import javax.inject.Inject;
-
 import java.io.File;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URL;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
+import org.apache.maven.api.Project;
+import org.apache.maven.api.model.DistributionManagement;
+import org.apache.maven.api.model.Site;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Parameter;
+import org.apache.maven.api.settings.Proxy;
+import org.apache.maven.api.settings.Server;
+import org.apache.maven.api.settings.Settings;
+import org.apache.maven.api.xml.XmlNode;
 import org.apache.maven.doxia.site.inheritance.URIPathDescriptor;
 import org.apache.maven.doxia.tools.SiteTool;
-import org.apache.maven.execution.MavenExecutionRequest;
-import org.apache.maven.execution.MavenSession;
-import org.apache.maven.model.DistributionManagement;
-import org.apache.maven.model.Site;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.site.AbstractSiteMojo;
-import org.apache.maven.project.MavenProject;
 import org.apache.maven.scm.provider.ScmUrlUtils;
-import org.apache.maven.settings.Proxy;
-import org.apache.maven.settings.Server;
-import org.apache.maven.settings.Settings;
 import org.apache.maven.settings.crypto.DefaultSettingsDecryptionRequest;
 import org.apache.maven.settings.crypto.SettingsDecrypter;
-import org.apache.maven.settings.crypto.SettingsDecryptionResult;
 import org.apache.maven.wagon.CommandExecutionException;
 import org.apache.maven.wagon.CommandExecutor;
 import org.apache.maven.wagon.ConnectionException;
@@ -75,7 +71,7 @@ public abstract class AbstractDeployMojo extends AbstractSiteMojo {
      *
      * @since 2.3
      */
-    @Parameter(alias = "outputDirectory", defaultValue = "${project.reporting.outputDirectory}", required = true)
+    @Parameter(alias = "outputDirectory")
     private File inputDirectory;
 
     /**
@@ -113,34 +109,15 @@ public abstract class AbstractDeployMojo extends AbstractSiteMojo {
     @Parameter(property = "maven.site.deploy.skip", defaultValue = "false")
     private boolean skipDeploy;
 
-    /**
-     * The current user system settings for use in Maven.
-     */
-    @Parameter(defaultValue = "${settings}", readonly = true)
-    private Settings settings;
-
-    /**
-     * @since 3.0-beta-2
-     */
-    @Parameter(defaultValue = "${session}", readonly = true)
-    protected MavenSession mavenSession;
-
     private String topDistributionManagementSiteUrl;
 
     private Site deploySite;
 
-    @Inject
-    private Map<String, Wagon> wagons;
-
-    @Inject
-    SettingsDecrypter settingsDecrypter;
-
-    @Inject
-    private WagonConfigurator wagonConfigurator;
     /**
      * {@inheritDoc}
      */
-    public void execute() throws MojoExecutionException {
+    @Override
+    protected void doExecute() {
         if (skip && isDeploy()) {
             getLog().info("maven.site.skip = true: Skipping site deployment");
             return;
@@ -182,10 +159,10 @@ public abstract class AbstractDeployMojo extends AbstractSiteMojo {
      * can tweak algorithm to determine this top site by implementing determineTopDistributionManagementSiteUrl().
      *
      * @return the site for deployment
-     * @throws MojoExecutionException in case of issue
+     * @throws MojoException in case of issue
      * @see #determineTopDistributionManagementSiteUrl()
      */
-    protected String getTopDistributionManagementSiteUrl() throws MojoExecutionException {
+    protected String getTopDistributionManagementSiteUrl() throws MojoException {
         if (topDistributionManagementSiteUrl == null) {
             topDistributionManagementSiteUrl = determineTopDistributionManagementSiteUrl();
 
@@ -196,7 +173,7 @@ public abstract class AbstractDeployMojo extends AbstractSiteMojo {
         return topDistributionManagementSiteUrl;
     }
 
-    protected abstract String determineTopDistributionManagementSiteUrl() throws MojoExecutionException;
+    protected abstract String determineTopDistributionManagementSiteUrl() throws MojoException;
 
     /**
      * Get the site used for deployment, with its id to look up credential settings and the target URL for deploying.
@@ -204,31 +181,31 @@ public abstract class AbstractDeployMojo extends AbstractSiteMojo {
      * can tweak algorithm to determine this deploy site by implementing determineDeploySite().
      *
      * @return the site for deployment
-     * @throws MojoExecutionException in case of issue
+     * @throws MojoException in case of issue
      * @see #determineDeploySite()
      */
-    protected Site getDeploySite() throws MojoExecutionException {
+    protected Site getDeploySite() throws MojoException {
         if (deploySite == null) {
             deploySite = determineDeploySite();
         }
         return deploySite;
     }
 
-    protected abstract Site determineDeploySite() throws MojoExecutionException;
+    protected abstract Site determineDeploySite() throws MojoException;
 
     /**
      * Find the relative path between the distribution URLs of the top site and the current project.
      *
      * @return the relative path or "./" if the two URLs are the same.
-     * @throws MojoExecutionException in case of issue
+     * @throws MojoException in case of issue
      */
-    protected String getDeployModuleDirectory() throws MojoExecutionException {
+    protected String getDeployModuleDirectory() throws MojoException {
         String to = getSite(project).getUrl();
 
         getLog().debug("Mapping url source calculation: ");
         String from = getTopDistributionManagementSiteUrl();
 
-        String relative = siteTool.getRelativePath(to, from);
+        String relative = getSiteTool().getRelativePath(to, from);
 
         // SiteTool.getRelativePath() uses File.separatorChar,
         // so we need to convert '\' to '/' in order for the URL to be valid for Windows users
@@ -244,11 +221,12 @@ public abstract class AbstractDeployMojo extends AbstractSiteMojo {
      *                   This needs to contain a valid, non-null {@link Repository#getId() id}
      *                   to look up credentials for deploying, and a valid, non-null
      *                   {@link Repository#getUrl() scm url} to deploy to.
-     * @throws MojoExecutionException if the deployment fails
+     * @throws MojoException if the deployment fails
      */
-    private void deployTo(final Repository repository) throws MojoExecutionException {
+    private void deployTo(final Repository repository) throws MojoException {
+        File inputDirectory = resolveOutputDirectory(this.inputDirectory);
         if (!inputDirectory.exists()) {
-            throw new MojoExecutionException("The site does not exist, please run site:site first");
+            throw new MojoException("The site does not exist, please run site:site first");
         }
 
         if (getLog().isDebugEnabled()) {
@@ -259,12 +237,12 @@ public abstract class AbstractDeployMojo extends AbstractSiteMojo {
         deploy(inputDirectory, repository);
     }
 
-    private void deploy(final File directory, final Repository repository) throws MojoExecutionException {
+    private void deploy(final File directory, final Repository repository) throws MojoException {
         // TODO: work on moving this into the deployer like the other deploy methods
         final Wagon wagon = getWagon(repository);
 
         try {
-            ProxyInfo proxyInfo = getProxy(repository, settingsDecrypter);
+            ProxyInfo proxyInfo = getProxy(repository);
 
             push(directory, repository, wagon, proxyInfo, getLocales(), getDeployModuleDirectory());
 
@@ -280,37 +258,31 @@ public abstract class AbstractDeployMojo extends AbstractSiteMojo {
         }
     }
 
-    private Wagon getWagon(final Repository repository) throws MojoExecutionException {
+    private Wagon getWagon(final Repository repository) throws MojoException {
         String protocol = repository.getProtocol();
         if (protocol == null) {
-            throw new MojoExecutionException("Unspecified protocol");
+            throw new MojoException("Unspecified protocol");
         }
-        Wagon wagon = wagons.get(protocol.toLowerCase(Locale.ROOT));
+        Wagon wagon = lookupMap(Wagon.class).get(protocol.toLowerCase(Locale.ROOT));
         if (wagon == null) {
-            throw new MojoExecutionException("Cannot find wagon which supports the requested protocol: " + protocol);
+            throw new MojoException("Cannot find wagon which supports the requested protocol: " + protocol);
         }
         if (!wagon.supportsDirectoryCopy()) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Wagon protocol '" + repository.getProtocol() + "' doesn't support directory copying");
         }
         // retrieve relevant settings
-        Server server = settings.getServer(repository.getId());
+        Server server = getServer(repository.getId());
         // taken over from
         // https://github.com/apache/maven/blob/18a52647884dcc822eb04bf5a3265a21dc83256c/maven-core/src/main/java/org/apache/maven/internal/aether/DefaultRepositorySystemSessionFactory.java#L242
         if (server != null && server.getConfiguration() != null) {
-            Xpp3Dom dom = (Xpp3Dom) server.getConfiguration();
-            for (int i = dom.getChildCount() - 1; i >= 0; i--) {
-                Xpp3Dom child = dom.getChild(i);
-                if ("wagonProvider".equals(child.getName())) {
-                    dom.removeChild(i);
-                }
-            }
+            Xpp3Dom dom = toXpp3Dom(server.getConfiguration(), "wagonProvider");
             XmlPlexusConfiguration config = new XmlPlexusConfiguration(dom);
             try {
                 // use Wagon configurator from Resolver
-                wagonConfigurator.configure(wagon, config);
+                lookup(WagonConfigurator.class).configure(wagon, config);
             } catch (Exception e) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "Error configuring wagon with server configuration for server id '" + repository.getId() + "'",
                         e);
             }
@@ -318,27 +290,52 @@ public abstract class AbstractDeployMojo extends AbstractSiteMojo {
         return wagon;
     }
 
-    public AuthenticationInfo getAuthenticationInfo(String id) {
-        if (id != null) {
-            List<Server> servers = settings.getServers();
-
-            if (servers != null) {
-                for (Server server : servers) {
-                    if (id.equalsIgnoreCase(server.getId())) {
-                        SettingsDecryptionResult result =
-                                settingsDecrypter.decrypt(new DefaultSettingsDecryptionRequest(server));
-                        server = result.getServer();
-
-                        AuthenticationInfo authInfo = new AuthenticationInfo();
-                        authInfo.setUserName(server.getUsername());
-                        authInfo.setPassword(server.getPassword());
-                        authInfo.setPrivateKey(server.getPrivateKey());
-                        authInfo.setPassphrase(server.getPassphrase());
-
-                        return authInfo;
-                    }
+    private Server getServer(String id) {
+        Settings settings = session.getSettings();
+        if (id != null && settings != null) {
+            for (Server server : settings.getServers()) {
+                if (id.equalsIgnoreCase(server.getId())) {
+                    return server;
                 }
             }
+        }
+        return null;
+    }
+
+    /**
+     * Converts a Maven 4 XML node to the Plexus type Wagon configuration wants.
+     *
+     * @param node the node
+     * @param skippedChild the name of the direct children to leave out
+     * @return the converted node
+     */
+    private static Xpp3Dom toXpp3Dom(XmlNode node, String skippedChild) {
+        Xpp3Dom dom = new Xpp3Dom(node.name());
+        dom.setValue(node.value());
+        node.attributes().forEach(dom::setAttribute);
+        for (XmlNode child : node.children()) {
+            if (!child.name().equals(skippedChild)) {
+                dom.addChild(toXpp3Dom(child, null));
+            }
+        }
+        return dom;
+    }
+
+    public AuthenticationInfo getAuthenticationInfo(String id) {
+        Server apiServer = getServer(id);
+        if (apiServer != null) {
+            // Maven 4 has no settings decryption API: use the Maven 3 decrypter over the settings model
+            org.apache.maven.settings.Server server = lookup(SettingsDecrypter.class)
+                    .decrypt(new DefaultSettingsDecryptionRequest(new org.apache.maven.settings.Server(apiServer)))
+                    .getServer();
+
+            AuthenticationInfo authInfo = new AuthenticationInfo();
+            authInfo.setUserName(server.getUsername());
+            authInfo.setPassword(server.getPassword());
+            authInfo.setPrivateKey(server.getPrivateKey());
+            authInfo.setPassphrase(server.getPassphrase());
+
+            return authInfo;
         }
 
         return null;
@@ -351,7 +348,7 @@ public abstract class AbstractDeployMojo extends AbstractSiteMojo {
             final ProxyInfo proxyInfo,
             final List<Locale> localesList,
             final String relativeDir)
-            throws MojoExecutionException {
+            throws MojoException {
         AuthenticationInfo authenticationInfo = getAuthenticationInfo(repository.getId());
         if (authenticationInfo != null) {
             getLog().debug("authenticationInfo with id '" + repository.getId() + "'");
@@ -397,13 +394,13 @@ public abstract class AbstractDeployMojo extends AbstractSiteMojo {
                 | AuthorizationException
                 | ConnectionException
                 | AuthenticationException e) {
-            throw new MojoExecutionException("Error uploading site", e);
+            throw new MojoException("Error uploading site", e);
         }
     }
 
     private static void chmod(
             final Wagon wagon, final Repository repository, final String chmodOptions, final String chmodMode)
-            throws MojoExecutionException {
+            throws MojoException {
         try {
             if (wagon instanceof CommandExecutor) {
                 CommandExecutor exec = (CommandExecutor) wagon;
@@ -411,7 +408,7 @@ public abstract class AbstractDeployMojo extends AbstractSiteMojo {
             }
             // else ? silently ignore, FileWagon is not a CommandExecutor!
         } catch (CommandExecutionException e) {
-            throw new MojoExecutionException("Error uploading site", e);
+            throw new MojoException("Error uploading site", e);
         }
     }
 
@@ -422,7 +419,7 @@ public abstract class AbstractDeployMojo extends AbstractSiteMojo {
      * @param settingsDecrypter settings password decrypter
      * @return a ProxyInfo object instantiated or <code>null</code> if no matching proxy is found.
      */
-    private ProxyInfo getProxy(Repository repository, SettingsDecrypter settingsDecrypter) {
+    private ProxyInfo getProxy(Repository repository) {
         String protocol = repository.getProtocol();
         String url = repository.getUrl();
 
@@ -448,38 +445,31 @@ public abstract class AbstractDeployMojo extends AbstractSiteMojo {
             getLog().debug("getProxy 'protocol': " + protocol);
         }
 
-        if (mavenSession != null && protocol != null) {
-            MavenExecutionRequest request = mavenSession.getRequest();
+        if (protocol != null) {
+            for (Proxy apiProxy : session.getSettings().getProxies()) {
+                if (apiProxy.isActive()
+                        && (protocol.equalsIgnoreCase(apiProxy.getProtocol())
+                                || originalProtocol.equalsIgnoreCase(apiProxy.getProtocol()))) {
+                    org.apache.maven.settings.Proxy proxy = lookup(SettingsDecrypter.class)
+                            .decrypt(
+                                    new DefaultSettingsDecryptionRequest(new org.apache.maven.settings.Proxy(apiProxy)))
+                            .getProxy();
 
-            if (request != null) {
-                List<Proxy> proxies = request.getProxies();
+                    ProxyInfo proxyInfo = new ProxyInfo();
+                    proxyInfo.setHost(proxy.getHost());
+                    // so hackish for wagon the protocol is https for site dav:
+                    // dav:https://dav.codehaus.org/mojo/
+                    proxyInfo.setType(protocol); // proxy.getProtocol() );
+                    proxyInfo.setPort(proxy.getPort());
+                    proxyInfo.setNonProxyHosts(proxy.getNonProxyHosts());
+                    proxyInfo.setUserName(proxy.getUsername());
+                    proxyInfo.setPassword(proxy.getPassword());
 
-                if (proxies != null) {
-                    for (Proxy proxy : proxies) {
-                        if (proxy.isActive()
-                                && (protocol.equalsIgnoreCase(proxy.getProtocol())
-                                        || originalProtocol.equalsIgnoreCase(proxy.getProtocol()))) {
-                            SettingsDecryptionResult result =
-                                    settingsDecrypter.decrypt(new DefaultSettingsDecryptionRequest(proxy));
-                            proxy = result.getProxy();
+                    getLog().debug("found proxyInfo "
+                            + ("host:port " + proxyInfo.getHost() + ":" + proxyInfo.getPort() + ", "
+                                    + proxyInfo.getUserName()));
 
-                            ProxyInfo proxyInfo = new ProxyInfo();
-                            proxyInfo.setHost(proxy.getHost());
-                            // so hackish for wagon the protocol is https for site dav:
-                            // dav:https://dav.codehaus.org/mojo/
-                            proxyInfo.setType(protocol); // proxy.getProtocol() );
-                            proxyInfo.setPort(proxy.getPort());
-                            proxyInfo.setNonProxyHosts(proxy.getNonProxyHosts());
-                            proxyInfo.setUserName(proxy.getUsername());
-                            proxyInfo.setPassword(proxy.getPassword());
-
-                            getLog().debug("found proxyInfo "
-                                    + ("host:port " + proxyInfo.getHost() + ":" + proxyInfo.getPort() + ", "
-                                            + proxyInfo.getUserName()));
-
-                            return proxyInfo;
-                        }
-                    }
+                    return proxyInfo;
                 }
             }
         }
@@ -493,32 +483,31 @@ public abstract class AbstractDeployMojo extends AbstractSiteMojo {
      * @param project the MavenProject. Not null.
      * @return the project site. Not null.
      *         Also site.getUrl() and site.getId() are guaranteed to be not null.
-     * @throws MojoExecutionException if any of the site info is missing.
+     * @throws MojoException if any of the site info is missing.
      */
-    protected static Site getSite(final MavenProject project) throws MojoExecutionException {
-        final DistributionManagement distributionManagement = project.getDistributionManagement();
+    protected static Site getSite(final Project project) {
+        final DistributionManagement distributionManagement = project.getModel().getDistributionManagement();
 
         if (distributionManagement == null) {
-            throw new MojoExecutionException("Missing distribution management in project " + getFullName(project));
+            throw new MojoException("Missing distribution management in project " + getFullName(project));
         }
 
         final Site site = distributionManagement.getSite();
 
         if (site == null) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Missing site information in the distribution management of the project " + getFullName(project));
         }
 
         if (site.getUrl() == null || site.getId() == null) {
-            throw new MojoExecutionException(
-                    "Missing site data: specify url and id for project " + getFullName(project));
+            throw new MojoException("Missing site data: specify url and id for project " + getFullName(project));
         }
 
         return site;
     }
 
-    private static String getFullName(MavenProject project) {
-        return project.getName() + " (" + project.getGroupId() + ':' + project.getArtifactId() + ':'
+    private static String getFullName(Project project) {
+        return project.getModel().getName() + " (" + project.getGroupId() + ':' + project.getArtifactId() + ':'
                 + project.getVersion() + ')';
     }
 
@@ -644,24 +633,24 @@ public abstract class AbstractDeployMojo extends AbstractSiteMojo {
      * @param project the MavenProject. Not <code>null</code>.
      * @return the top level site. Not <code>null</code>.
      *         Also site.getUrl() and site.getId() are guaranteed to be not <code>null</code>.
-     * @throws MojoExecutionException if no site info is found in the tree.
+     * @throws MojoException if no site info is found in the tree.
      * @see URIPathDescriptor#sameSite(java.net.URI)
      */
-    protected MavenProject getTopLevelProject(MavenProject project) throws MojoExecutionException {
+    protected Project getTopLevelProject(Project project) {
         Site site = getSite(project);
 
-        MavenProject parent = project;
+        Project parent = project;
 
-        while (parent.getParent() != null) {
-            MavenProject oldProject = parent;
-            // MSITE-585, MNG-1943
-            parent = parent.getParent();
+        // MSITE-585, MNG-1943
+        for (Optional<Project> next = getParent(parent); next.isPresent(); next = getParent(parent)) {
+            Project oldProject = parent;
+            parent = next.get();
 
             Site oldSite = site;
 
             try {
                 site = getSite(parent);
-            } catch (MojoExecutionException e) {
+            } catch (MojoException e) {
                 return oldProject;
             }
 

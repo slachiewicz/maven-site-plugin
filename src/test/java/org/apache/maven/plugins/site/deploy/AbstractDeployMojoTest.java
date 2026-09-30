@@ -18,13 +18,14 @@
  */
 package org.apache.maven.plugins.site.deploy;
 
-import org.apache.maven.model.DistributionManagement;
-import org.apache.maven.model.Site;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.project.MavenProject;
+import java.util.Optional;
+
+import org.apache.maven.api.Project;
+import org.apache.maven.api.model.Site;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.when;
 
 /**
  * Tests for AbstractDeployMojo.
@@ -41,19 +42,19 @@ public class AbstractDeployMojoTest {
         TestDeployMojo mojo = new TestDeployMojo();
 
         // Create child project with SCM URL
-        MavenProject childProject =
+        Project childProject =
                 createProjectWithSite("child", "scm:git:git@github.com:codehaus-plexus/plexus-sec-dispatcher.git/");
 
         // Create parent project with different SCM URL
-        MavenProject parentProject =
+        Project parentProject =
                 createProjectWithSite("parent", "scm:git:https://github.com/codehaus-plexus/plexus-pom.git/");
 
         // Set up the parent-child relationship
-        childProject.setParent(parentProject);
+        when(childProject.getParent()).thenReturn(Optional.of(parentProject));
 
         // Call getTopLevelProject - it should return childProject, not parentProject
         // because the SCM URLs point to different repositories
-        MavenProject topProject = mojo.getTopLevelProject(childProject);
+        Project topProject = mojo.getTopLevelProject(childProject);
 
         // The top project should be the child project itself since the parent has a different site
         assertEquals(childProject, topProject, "Top project should be child project due to different SCM URLs");
@@ -68,19 +69,19 @@ public class AbstractDeployMojoTest {
         TestDeployMojo mojo = new TestDeployMojo();
 
         // Create child project with SCM URL
-        MavenProject childProject =
+        Project childProject =
                 createProjectWithSite("child", "scm:git:https://github.com/codehaus-plexus/plexus-pom.git/child");
 
         // Create parent project with same base SCM URL
-        MavenProject parentProject =
+        Project parentProject =
                 createProjectWithSite("parent", "scm:git:https://github.com/codehaus-plexus/plexus-pom.git/");
 
         // Set up the parent-child relationship
-        childProject.setParent(parentProject);
+        when(childProject.getParent()).thenReturn(Optional.of(parentProject));
 
         // Call getTopLevelProject - it should return parentProject
         // because the SCM URLs point to the same repository
-        MavenProject topProject = mojo.getTopLevelProject(childProject);
+        Project topProject = mojo.getTopLevelProject(childProject);
 
         // The top project should be the parent project since they share the same site
         assertEquals(parentProject, topProject, "Top project should be parent project due to same SCM base URL");
@@ -95,16 +96,16 @@ public class AbstractDeployMojoTest {
         TestDeployMojo mojo = new TestDeployMojo();
 
         // Create child project with regular URL
-        MavenProject childProject = createProjectWithSite("child", "https://example.com/site/child");
+        Project childProject = createProjectWithSite("child", "https://example.com/site/child");
 
         // Create parent project with same base URL
-        MavenProject parentProject = createProjectWithSite("parent", "https://example.com/site/");
+        Project parentProject = createProjectWithSite("parent", "https://example.com/site/");
 
         // Set up the parent-child relationship
-        childProject.setParent(parentProject);
+        when(childProject.getParent()).thenReturn(Optional.of(parentProject));
 
         // Call getTopLevelProject - it should return parentProject
-        MavenProject topProject = mojo.getTopLevelProject(childProject);
+        Project topProject = mojo.getTopLevelProject(childProject);
 
         // The top project should be the parent project since they share the same site
         assertEquals(parentProject, topProject, "Top project should be parent project for regular URLs");
@@ -119,17 +120,17 @@ public class AbstractDeployMojoTest {
         TestDeployMojo mojo = new TestDeployMojo();
 
         // Create child project with https SCM URL
-        MavenProject childProject = createProjectWithSite("child", "scm:git:https://github.com/user/repo1.git/");
+        Project childProject = createProjectWithSite("child", "scm:git:https://github.com/user/repo1.git/");
 
         // Create parent project with different https SCM URL (different domain)
-        MavenProject parentProject = createProjectWithSite("parent", "scm:git:https://gitlab.com/user/repo2.git/");
+        Project parentProject = createProjectWithSite("parent", "scm:git:https://gitlab.com/user/repo2.git/");
 
         // Set up the parent-child relationship
-        childProject.setParent(parentProject);
+        when(childProject.getParent()).thenReturn(Optional.of(parentProject));
 
         // Call getTopLevelProject - it should return childProject
         // because the SCM URLs point to different repositories
-        MavenProject topProject = mojo.getTopLevelProject(childProject);
+        Project topProject = mojo.getTopLevelProject(childProject);
 
         // The top project should be the child project itself since the parent has a different site
         assertEquals(childProject, topProject, "Top project should be child project due to different https SCM URLs");
@@ -143,14 +144,14 @@ public class AbstractDeployMojoTest {
     public void testGetTopLevelProjectWithSiblingRepositoriesOnSameHost() throws Exception {
         TestDeployMojo mojo = new TestDeployMojo();
 
-        MavenProject childProject =
+        Project childProject =
                 createProjectWithSite("child", "scm:git:https://github.com/codehaus-plexus/plexus-xml.git");
-        MavenProject parentProject =
+        Project parentProject =
                 createProjectWithSite("parent", "scm:git:https://github.com/codehaus-plexus/plexus-pom.git");
 
-        childProject.setParent(parentProject);
+        when(childProject.getParent()).thenReturn(Optional.of(parentProject));
 
-        MavenProject topProject = mojo.getTopLevelProject(childProject);
+        Project topProject = mojo.getTopLevelProject(childProject);
 
         assertEquals(childProject, topProject, "Sibling repositories do not share a site");
     }
@@ -173,14 +174,14 @@ public class AbstractDeployMojoTest {
 
         // Now verify they would be considered the same site by creating projects with these URLs
         TestDeployMojo mojo = new TestDeployMojo();
-        MavenProject childProject =
+        Project childProject =
                 createProjectWithSite("child", "scm:svn:https://svn.apache.org/repos/asf/maven/website/components");
-        MavenProject parentProject =
+        Project parentProject =
                 createProjectWithSite("parent", "scm:svn:http://svn.apache.org/repos/asf/maven/website");
-        childProject.setParent(parentProject);
+        when(childProject.getParent()).thenReturn(Optional.of(parentProject));
 
         // The parent should be returned as the top project since they share the same SVN site
-        MavenProject topProject = mojo.getTopLevelProject(childProject);
+        Project topProject = mojo.getTopLevelProject(childProject);
         assertEquals(
                 parentProject,
                 topProject,
@@ -203,30 +204,16 @@ public class AbstractDeployMojoTest {
     @Test
     public void testGetTopLevelProjectWithDifferentPorts() throws Exception {
         TestDeployMojo mojo = new TestDeployMojo();
-        MavenProject childProject =
-                createProjectWithSite("child", "scm:git:https://example.com:8443/org/repo.git/child");
-        MavenProject parentProject = createProjectWithSite("parent", "scm:git:https://example.com:9443/org/repo.git/");
-        childProject.setParent(parentProject);
+        Project childProject = createProjectWithSite("child", "scm:git:https://example.com:8443/org/repo.git/child");
+        Project parentProject = createProjectWithSite("parent", "scm:git:https://example.com:9443/org/repo.git/");
+        when(childProject.getParent()).thenReturn(Optional.of(parentProject));
 
-        MavenProject topProject = mojo.getTopLevelProject(childProject);
+        Project topProject = mojo.getTopLevelProject(childProject);
         assertEquals(childProject, topProject, "Projects with different ports should not share a site");
     }
 
-    private MavenProject createProjectWithSite(String artifactId, String siteUrl) {
-        MavenProject project = new MavenProject();
-        project.setGroupId("org.apache.maven.test");
-        project.setArtifactId(artifactId);
-        project.setVersion("1.0");
-        project.setName(artifactId);
-
-        DistributionManagement distributionManagement = new DistributionManagement();
-        Site site = new Site();
-        site.setId("test-site");
-        site.setUrl(siteUrl);
-        distributionManagement.setSite(site);
-        project.setDistributionManagement(distributionManagement);
-
-        return project;
+    private Project createProjectWithSite(String artifactId, String siteUrl) {
+        return DeployTestSupport.project(artifactId, siteUrl, null);
     }
 
     /**
@@ -239,16 +226,13 @@ public class AbstractDeployMojoTest {
         }
 
         @Override
-        protected String determineTopDistributionManagementSiteUrl() throws MojoExecutionException {
+        protected String determineTopDistributionManagementSiteUrl() {
             return "test";
         }
 
         @Override
-        protected Site determineDeploySite() throws MojoExecutionException {
-            Site site = new Site();
-            site.setId("test");
-            site.setUrl("test");
-            return site;
+        protected Site determineDeploySite() {
+            return Site.newBuilder().id("test").url("test").build();
         }
     }
 }

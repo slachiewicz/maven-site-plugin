@@ -75,7 +75,7 @@ Doxia Site Renderer Velocity Context
 | <<<StringUtils>>>     | = <<<$StringUtils>>>
 *-----------------------+-------------------------------------------------------+
 | <<<plexus>>>          | = <<<$plexus>>> \
-|                       | <<<plexus.lookup("org.apache.maven.Maven")>>> = <<<$plexus.lookup("org.apache.maven.Maven")>>>
+|                       | <<<plexus.lookup("org.apache.maven.doxia.tools.SiteTool")>>> = <<<$plexus.lookup("org.apache.maven.doxia.tools.SiteTool")>>>
 *-----------------------+-------------------------------------------------------+
 
 * Maven Site Plugin

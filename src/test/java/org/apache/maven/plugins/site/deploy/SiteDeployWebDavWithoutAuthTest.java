@@ -18,27 +18,16 @@
  */
 package org.apache.maven.plugins.site.deploy;
 
-import javax.inject.Inject;
-
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.util.Arrays;
 import java.util.List;
 
 import org.apache.commons.io.FileUtils;
-import org.apache.maven.api.di.Provides;
-import org.apache.maven.api.plugin.testing.InjectMojo;
-import org.apache.maven.api.plugin.testing.MojoParameter;
-import org.apache.maven.api.plugin.testing.MojoTest;
-import org.apache.maven.execution.DefaultMavenExecutionRequest;
-import org.apache.maven.execution.MavenExecutionRequest;
-import org.apache.maven.execution.MavenSession;
-import org.apache.maven.plugins.site.stubs.SiteMavenProjectStub;
-import org.apache.maven.project.MavenProject;
-import org.apache.maven.settings.Proxy;
-import org.apache.maven.settings.Settings;
+import org.apache.maven.api.Project;
+import org.apache.maven.api.Session;
+import org.apache.maven.api.settings.Proxy;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -48,7 +37,6 @@ import org.junit.jupiter.api.io.TempDir;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.when;
 
 public class SiteDeployWebDavWithoutAuthTest {
     @TempDir
@@ -87,105 +75,57 @@ public class SiteDeployWebDavWithoutAuthTest {
     }
 
     @Nested
-    @MojoTest
     class NoAutzDavDeploy {
 
-        @Inject
-        private Settings settings;
-
-        @Inject
-        private MavenProject project;
-
-        @InjectMojo(goal = "deploy", pom = "src/test/resources/unit/deploy-dav/pom.xml")
-        @MojoParameter(name = "inputDirectory", value = "target/site")
         @Test
-        public void noAuthzDavDeploy(SiteDeployMojo mojo) throws Exception {
+        public void noAuthzDavDeploy() throws Exception {
             assertTrue(
                     simpleDavServerHandler.getPort() > 0,
                     "dav server port not available: " + simpleDavServerHandler.getPort());
 
-            mojo.execute();
+            Project project = DeployTestSupport.project(
+                    "deploy-dav", "dav:http://localhost:" + simpleDavServerHandler.getPort() + "/site/", null);
+
+            deploy(project, DeployTestSupport.session());
+
             assertContentInFiles();
             assertFalse(assertAtLeastOneRequestContainsHeader(simpleDavServerHandler.httpRequests, "proxy-connection"));
-        }
-
-        @Provides
-        private Settings settings() {
-            return new Settings();
-        }
-
-        @Provides
-        private MavenProject project() {
-            SiteMavenProjectStub siteMavenProjectStub = new SiteMavenProjectStub("deploy-dav");
-            siteMavenProjectStub
-                    .getDistributionManagement()
-                    .getSite()
-                    .setUrl("dav:http://localhost:" + simpleDavServerHandler.getPort() + "/site/");
-            return siteMavenProjectStub;
         }
     }
 
     @Nested
-    @MojoTest
     class DavDeployThruProxyWithoutAuthzInProxy {
 
-        @Inject
-        private MavenProject project;
-
-        @Inject
-        private Settings settings;
-
-        @Inject
-        private MavenSession mavenSession;
-
-        @InjectMojo(goal = "deploy", pom = "src/test/resources/unit/deploy-dav/pom.xml")
-        @MojoParameter(name = "inputDirectory", value = "target/site")
         @Test
-        public void davDeployThruProxyWithoutAuthzInProxy(SiteDeployMojo mojo) throws Exception {
-            when(mavenSession.getRequest()).thenReturn(request());
+        public void davDeployThruProxyWithoutAuthzInProxy() throws Exception {
+            // olamy, Note : toto is something like foo or bar for french folks :-)
+            Project project = DeployTestSupport.project("deploy-dav", "dav:http://toto.com/site/", null);
 
-            mojo.execute();
+            deploy(project, DeployTestSupport.session(proxy()));
 
             assertContentInFiles();
 
             assertTrue(assertAtLeastOneRequestContainsHeader(simpleDavServerHandler.httpRequests, "proxy-connection"));
         }
 
-        @Provides
-        private MavenProject project() {
-            SiteMavenProjectStub siteMavenProjectStub = new SiteMavenProjectStub("deploy-dav");
-            // olamy, Note : toto is something like foo or bar for french folks :-)
-            String siteUrl = "dav:http://toto.com/site/";
-            siteMavenProjectStub.getDistributionManagement().getSite().setUrl(siteUrl);
-
-            return siteMavenProjectStub;
-        }
-
-        @Provides
-        private Settings settings() {
-            Settings settings = new Settings();
-
-            settings.addProxy(proxy());
-            return settings;
-        }
-
-        private MavenExecutionRequest request() {
-            MavenExecutionRequest request = new DefaultMavenExecutionRequest();
-            request.setProxies(Arrays.asList(proxy()));
-            return request;
-        }
-
         private Proxy proxy() {
-            Proxy proxy = new Proxy();
-
             // dummy proxy
-            proxy.setActive(true);
-            proxy.setHost("localhost");
-            proxy.setPort(simpleDavServerHandler.getPort());
-            proxy.setProtocol("http");
-            proxy.setNonProxyHosts("www.google.com|*.somewhere.com");
-            return proxy;
+            return Proxy.newBuilder()
+                    .activeString("true")
+                    .host("localhost")
+                    .portString(String.valueOf(simpleDavServerHandler.getPort()))
+                    .protocol("http")
+                    .nonProxyHosts("www.google.com|*.somewhere.com")
+                    .build();
         }
+    }
+
+    private static void deploy(Project project, Session session) throws Exception {
+        SiteDeployMojo mojo = new SiteDeployMojo();
+        DeployTestSupport.prepare(mojo, project, session);
+        DeployTestSupport.set(mojo, "inputDirectory", new File("src/test/resources/unit/deploy-dav/target/site"));
+        DeployTestSupport.set(mojo, "chmod", false);
+        mojo.execute();
     }
 
     private void assertContentInFiles() throws Exception {

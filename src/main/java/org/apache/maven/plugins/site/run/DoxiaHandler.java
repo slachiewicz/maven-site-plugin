@@ -33,14 +33,13 @@ import java.util.Map;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
+import org.apache.maven.api.plugin.Log;
 import org.apache.maven.doxia.siterenderer.DocumentRenderer;
 import org.apache.maven.doxia.siterenderer.DoxiaDocumentRenderer;
 import org.apache.maven.doxia.siterenderer.RendererException;
 import org.apache.maven.doxia.siterenderer.SiteRenderer;
 import org.apache.maven.doxia.siterenderer.SiteRenderingContext;
 import org.apache.maven.doxia.tools.SiteTool;
-import org.apache.maven.plugin.logging.Log;
-import org.apache.maven.plugins.site.render.ReportDocumentRenderer;
 import org.apache.maven.plugins.site.render.SitePluginReportDocumentRenderer;
 
 import static org.apache.maven.shared.utils.logging.MessageUtils.buffer;
@@ -132,18 +131,6 @@ public class DoxiaHandler implements HttpHandler {
         logDocumentRenderer(path, locale, docRenderer);
         String outputName = docRenderer.getOutputName();
 
-        if (docRenderer instanceof ReportDocumentRenderer
-                && ((ReportDocumentRenderer) docRenderer).isExternalReport()) {
-            Path externalReportFile = outputDirectory.resolve(outputName).normalize();
-            if (!externalReportFile.startsWith(outputDirectory) || !Files.isRegularFile(externalReportFile)) {
-                sendError(exchange, 404, "External report not found: " + outputName);
-                return;
-            }
-            byte[] content = Files.readAllBytes(externalReportFile);
-            send(exchange, 200, getMimeType(outputName, null), content);
-            return;
-        }
-
         Writer writer = new StringWriter();
         docRenderer.renderDocument(writer, siteRenderer, context);
 
@@ -192,11 +179,6 @@ public class DoxiaHandler implements HttpHandler {
         String source;
         if (docRenderer instanceof DoxiaDocumentRenderer) {
             source = docRenderer.getRenderingContext().getDoxiaSourcePath();
-        } else if (docRenderer instanceof ReportDocumentRenderer) {
-            source = ((ReportDocumentRenderer) docRenderer).getReportMojoInfo();
-            if (source == null) {
-                source = "(unknown)";
-            }
         } else if (docRenderer instanceof SitePluginReportDocumentRenderer) {
             source = ((SitePluginReportDocumentRenderer) docRenderer).getReportMojoInfo();
         } else {

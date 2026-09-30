@@ -18,18 +18,17 @@
  */
 package org.apache.maven.plugins.site.deploy;
 
-import java.util.Map;
+import java.util.List;
 
-import org.apache.maven.model.Build;
-import org.apache.maven.model.Plugin;
-import org.apache.maven.model.PluginManagement;
-import org.apache.maven.model.Site;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
-import org.apache.maven.plugins.annotations.ResolutionScope;
-import org.apache.maven.project.MavenProject;
-import org.codehaus.plexus.util.xml.Xpp3Dom;
+import org.apache.maven.api.Project;
+import org.apache.maven.api.model.Build;
+import org.apache.maven.api.model.Plugin;
+import org.apache.maven.api.model.PluginManagement;
+import org.apache.maven.api.model.Site;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+import org.apache.maven.api.xml.XmlNode;
 
 /**
  * Deploys the generated site to a staging or mock URL to the site URL
@@ -40,7 +39,7 @@ import org.codehaus.plexus.util.xml.Xpp3Dom;
  *
  * @since 2.0
  */
-@Mojo(name = "stage-deploy", requiresDependencyResolution = ResolutionScope.TEST)
+@Mojo(name = "stage-deploy")
 public class SiteStageDeployMojo extends AbstractStagingMojo {
     /**
      * The staged site will be deployed to this URL.
@@ -87,7 +86,7 @@ public class SiteStageDeployMojo extends AbstractStagingMojo {
      * will be used.
      */
     @Override
-    protected String determineTopDistributionManagementSiteUrl() throws MojoExecutionException {
+    protected String determineTopDistributionManagementSiteUrl() throws MojoException {
         if (topSiteURL != null && !topSiteURL.isEmpty()) {
             getLog().debug("stage-deploy top distributionManagement.site.url configured with topSiteURL parameter: "
                     + topSiteURL);
@@ -96,7 +95,7 @@ public class SiteStageDeployMojo extends AbstractStagingMojo {
 
         if (stagingSiteURL != null && !stagingSiteURL.isEmpty()) {
             // We need to calculate the first project that supplied same stagingSiteURL
-            MavenProject topProject = getTopMostParentWithSameStagingSiteURL();
+            Project topProject = getTopMostParentWithSameStagingSiteURL();
             String url = getSite(topProject).getUrl();
             getLog().debug("stage-deploy top stagingSiteURL found in " + topProject.getId() + " with value: " + url);
             return url;
@@ -106,38 +105,34 @@ public class SiteStageDeployMojo extends AbstractStagingMojo {
     }
 
     @Override
-    protected Site determineDeploySite() throws MojoExecutionException {
-        Site top = new Site();
-
-        top.setId(determineStagingSiteId());
-        getLog().info("Using this server ID for stage deploy: " + top.getId());
+    protected Site determineDeploySite() throws MojoException {
+        String id = determineStagingSiteId();
+        getLog().info("Using this server ID for stage deploy: " + id);
 
         String stagingURL = determineStageDeploySiteURL();
         getLog().info("Using this base URL for stage deploy: " + stagingURL);
 
-        top.setUrl(stagingURL);
-
-        return top;
+        return Site.newBuilder().id(id).url(stagingURL).build();
     }
 
     /**
      * Extract the distributionManagement.site of the top most project in the
-     * hierarchy that specifies a stagingSiteURL, starting at the actual MavenProject.
+     * hierarchy that specifies a stagingSiteURL, starting at the actual Project.
      * <p/>
      * This climbs up the project hierarchy and returns the site of the top most
      * project for which
-     * {@link #getStagingSiteURL(org.apache.maven.project.MavenProject)} returns
+     * {@link #getStagingSiteURL(org.apache.maven.project.Project)} returns
      * same URL as actual.
      *
      * @return the site for the top most project that has a stagingSiteURL. Not null.
      */
-    private MavenProject getTopMostParentWithSameStagingSiteURL() {
-        MavenProject current = project;
-        MavenProject parent;
+    private Project getTopMostParentWithSameStagingSiteURL() {
+        Project current = project;
+        Project parent;
 
         // CHECKSTYLE_OFF: InnerAssignment
         while ( // MSITE-585, MNG-1943
-        (parent = current.getParent()) != null && stagingSiteURL.equals(getStagingSiteURL(parent))) {
+        (parent = getParent(current).orElse(null)) != null && stagingSiteURL.equals(getStagingSiteURL(parent))) {
             current = parent;
         }
         // CHECKSTYLE_ON: InnerAssignment
@@ -149,49 +144,55 @@ public class SiteStageDeployMojo extends AbstractStagingMojo {
      * Extract the value of the stagingSiteURL configuration parameter of
      * maven-site-plugin for the given project.
      *
-     * @param project The MavenProject, not null
+     * @param project The Project, not null
      * @return The stagingSiteURL for the project, or null if it doesn't have one
      */
-    private String getStagingSiteURL(MavenProject project) {
+    private String getStagingSiteURL(Project project) {
         final String sitePluginKey = "org.apache.maven.plugins:maven-site-plugin";
 
         if (project == null) {
             return null;
         }
 
-        final Build build = project.getBuild();
+        final Build build = project.getModel().getBuild();
         if (build == null) {
             return null;
         }
 
-        Map<String, Plugin> plugins = build.getPluginsAsMap();
-
-        Plugin sitePlugin = plugins.get(sitePluginKey);
+        Plugin sitePlugin = findPlugin(build.getPlugins(), sitePluginKey);
         if (sitePlugin == null) {
             final PluginManagement buildPluginManagement = build.getPluginManagement();
             if (buildPluginManagement == null) {
                 return null;
             }
 
-            plugins = buildPluginManagement.getPluginsAsMap();
-            sitePlugin = plugins.get(sitePluginKey);
+            sitePlugin = findPlugin(buildPluginManagement.getPlugins(), sitePluginKey);
         }
 
         if (sitePlugin == null) {
             return null;
         }
 
-        final Xpp3Dom sitePluginConfiguration = (Xpp3Dom) sitePlugin.getConfiguration();
+        final XmlNode sitePluginConfiguration = sitePlugin.getConfiguration();
         if (sitePluginConfiguration == null) {
             return null;
         }
 
-        final Xpp3Dom child = sitePluginConfiguration.getChild("stagingSiteURL");
+        final XmlNode child = sitePluginConfiguration.child("stagingSiteURL");
         if (child == null) {
             return null;
         } else {
-            return child.getValue();
+            return child.value();
         }
+    }
+
+    private static Plugin findPlugin(List<Plugin> plugins, String key) {
+        for (Plugin plugin : plugins) {
+            if (key.equals(plugin.getKey())) {
+                return plugin;
+            }
+        }
+        return null;
     }
 
     /**
@@ -199,7 +200,7 @@ public class SiteStageDeployMojo extends AbstractStagingMojo {
      *
      * @return the site URL for staging
      */
-    private String determineStageDeploySiteURL() throws MojoExecutionException {
+    private String determineStageDeploySiteURL() throws MojoException {
         if (stagingSiteURL != null) {
             // the user has specified a stagingSiteURL - use it
             getLog().debug("stagingSiteURL specified by the user: " + stagingSiteURL);
@@ -220,7 +221,7 @@ public class SiteStageDeployMojo extends AbstractStagingMojo {
 
         try {
             return getSite(project).getId();
-        } catch (MojoExecutionException ex) {
+        } catch (MojoException ex) {
             return "stagingSite";
         }
     }

@@ -18,8 +18,6 @@
  */
 package org.apache.maven.plugins.site.run;
 
-import javax.inject.Inject;
-
 import java.io.File;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -32,19 +30,13 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import com.sun.net.httpserver.HttpServer;
-import org.apache.maven.doxia.site.inheritance.SiteModelInheritanceAssembler;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 import org.apache.maven.doxia.siterenderer.DocumentRenderer;
-import org.apache.maven.doxia.siterenderer.SiteRenderer;
 import org.apache.maven.doxia.siterenderer.SiteRenderingContext;
 import org.apache.maven.doxia.tools.SiteTool;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugin.MojoFailureException;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
-import org.apache.maven.plugins.annotations.ResolutionScope;
 import org.apache.maven.plugins.site.render.AbstractSiteRenderingMojo;
-import org.apache.maven.reporting.exec.MavenReportExecution;
-import org.apache.maven.reporting.exec.MavenReportExecutor;
 
 import static org.apache.maven.shared.utils.logging.MessageUtils.buffer;
 
@@ -55,7 +47,7 @@ import static org.apache.maven.shared.utils.logging.MessageUtils.buffer;
  * @author <a href="mailto:brett@apache.org">Brett Porter</a>
  * @see org.apache.maven.plugins.site.render.AutoRefreshMojo {@code auto-refresh} goal for automatic rerendering based on file system changes.
  */
-@Mojo(name = "run", requiresDependencyResolution = ResolutionScope.TEST, requiresReports = true)
+@Mojo(name = "run")
 public class SiteRunMojo extends AbstractSiteRenderingMojo {
     /**
      * Where to create the temporary site directory served by the HTTP server.
@@ -75,19 +67,8 @@ public class SiteRunMojo extends AbstractSiteRenderingMojo {
     @Parameter(property = "port", defaultValue = "8080")
     private int port;
 
-    @Inject
-    public SiteRunMojo(
-            SiteModelInheritanceAssembler assembler,
-            SiteRenderer siteRenderer,
-            MavenReportExecutor mavenReportExecutor) {
-        super(assembler, siteRenderer, mavenReportExecutor);
-    }
-
-    /**
-     * @see org.apache.maven.plugin.AbstractMojo#execute()
-     */
     @Override
-    public void execute() throws MojoExecutionException, MojoFailureException {
+    protected void doExecute() {
         checkInputEncoding();
 
         tempWebappDirectory.mkdirs();
@@ -98,7 +79,7 @@ public class SiteRunMojo extends AbstractSiteRenderingMojo {
         try {
             server = HttpServer.create(new InetSocketAddress(host, port), 0);
         } catch (IOException e) {
-            throw new MojoExecutionException("Error creating HTTP server on " + host + ":" + port, e);
+            throw new MojoException("Error creating HTTP server on " + host + ":" + port, e);
         }
 
         ExecutorService executor = Executors.newCachedThreadPool(runnable -> {
@@ -108,7 +89,8 @@ public class SiteRunMojo extends AbstractSiteRenderingMojo {
         });
         server.setExecutor(executor);
         server.createContext(
-                "/", new DoxiaHandler(tempWebappDirectory, siteRenderer, i18nDoxiaContexts, getLocales(), getLog()));
+                "/",
+                new DoxiaHandler(tempWebappDirectory, getSiteRenderer(), i18nDoxiaContexts, getLocales(), getLog()));
 
         server.start();
 
@@ -135,12 +117,11 @@ public class SiteRunMojo extends AbstractSiteRenderingMojo {
         }
     }
 
-    private Map<String, DoxiaBean> createDoxiaContexts() throws MojoExecutionException {
+    private Map<String, DoxiaBean> createDoxiaContexts() throws MojoException {
         Map<String, DoxiaBean> i18nDoxiaContexts;
 
         try {
-            // For external reports
-            project.getReporting().setOutputDirectory(tempWebappDirectory.getAbsolutePath());
+            warnReportsNotSupported(true);
 
             List<Locale> localesList = getLocales();
             i18nDoxiaContexts = new HashMap<>();
@@ -150,22 +131,22 @@ public class SiteRunMojo extends AbstractSiteRenderingMojo {
                 i18nContext.setInputEncoding(getInputEncoding());
                 i18nContext.setOutputEncoding(getOutputEncoding());
 
-                File outputDirectory = getOutputDirectory(locale);
-                List<MavenReportExecution> reports = getReports(outputDirectory);
+                // creates the directory reports would write to
+                getOutputDirectory(locale);
 
-                Map<String, DocumentRenderer> i18nDocuments = locateDocuments(i18nContext, reports, locale);
+                Map<String, DocumentRenderer> i18nDocuments = locateDocuments(i18nContext, locale);
                 DoxiaBean doxiaBean = new DoxiaBean(i18nContext, i18nDocuments);
 
                 if (!locale.equals(SiteTool.DEFAULT_LOCALE)) {
                     i18nDoxiaContexts.put(locale.toString(), doxiaBean);
-                    siteRenderer.copyResources(i18nContext, new File(tempWebappDirectory, locale.toString()));
+                    getSiteRenderer().copyResources(i18nContext, new File(tempWebappDirectory, locale.toString()));
                 } else {
                     i18nDoxiaContexts.put("default", doxiaBean);
-                    siteRenderer.copyResources(i18nContext, tempWebappDirectory);
+                    getSiteRenderer().copyResources(i18nContext, tempWebappDirectory);
                 }
             }
         } catch (Exception e) {
-            throw new MojoExecutionException("Unable to set up site:run contexts", e);
+            throw new MojoException("Unable to set up site:run contexts", e);
         }
         return i18nDoxiaContexts;
     }

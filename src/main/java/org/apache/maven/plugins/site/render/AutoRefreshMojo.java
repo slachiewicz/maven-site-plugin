@@ -18,12 +18,9 @@
  */
 package org.apache.maven.plugins.site.render;
 
-import javax.inject.Inject;
-
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -32,22 +29,17 @@ import org.apache.commons.io.monitor.FileAlterationListener;
 import org.apache.commons.io.monitor.FileAlterationListenerAdaptor;
 import org.apache.commons.io.monitor.FileAlterationMonitor;
 import org.apache.commons.io.monitor.FileAlterationObserver;
-import org.apache.maven.doxia.site.inheritance.SiteModelInheritanceAssembler;
+import org.apache.maven.api.di.Inject;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+import org.apache.maven.api.services.Prompter;
+import org.apache.maven.api.services.PrompterException;
 import org.apache.maven.doxia.siterenderer.DocumentRenderer;
 import org.apache.maven.doxia.siterenderer.DoxiaDocumentRenderer;
 import org.apache.maven.doxia.siterenderer.RendererException;
-import org.apache.maven.doxia.siterenderer.SiteRenderer;
 import org.apache.maven.doxia.siterenderer.SiteRenderingContext;
 import org.apache.maven.doxia.tools.SiteTool;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugin.MojoFailureException;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
-import org.apache.maven.plugins.annotations.ResolutionScope;
-import org.apache.maven.reporting.exec.MavenReportExecution;
-import org.apache.maven.reporting.exec.MavenReportExecutor;
-import org.codehaus.plexus.components.interactivity.Prompter;
-import org.codehaus.plexus.components.interactivity.PrompterException;
 
 /**
  * Renders the site once completely and then watches for Doxia source file changes.
@@ -59,13 +51,13 @@ import org.codehaus.plexus.components.interactivity.PrompterException;
  *
  * @since 3.22.0
  */
-@Mojo(name = "auto-refresh", requiresDependencyResolution = ResolutionScope.TEST, threadSafe = true, aggregator = true)
+@Mojo(name = "auto-refresh", aggregator = true)
 public class AutoRefreshMojo extends AbstractSiteRenderingMojo {
 
     /**
      * Directory where the project sites and report distributions will be generated (as html/css/...).
      */
-    @Parameter(property = "siteOutputDirectory", defaultValue = "${project.reporting.outputDirectory}")
+    @Parameter(property = "siteOutputDirectory")
     protected File outputDirectory;
 
     /**
@@ -81,19 +73,10 @@ public class AutoRefreshMojo extends AbstractSiteRenderingMojo {
     private boolean generateReports;
 
     @Inject
-    public AutoRefreshMojo(
-            SiteModelInheritanceAssembler assembler,
-            SiteRenderer siteRenderer,
-            MavenReportExecutor mavenReportExecutor,
-            Prompter prompter) {
-        super(assembler, siteRenderer, mavenReportExecutor);
-        this.prompter = prompter;
-    }
-
-    private final Prompter prompter;
+    private Prompter prompter;
 
     @Override
-    public void execute() throws MojoExecutionException, MojoFailureException {
+    protected void doExecute() throws Exception {
         if (skip) {
             getLog().info("maven.site.skip = true: Skipping site generation");
             return;
@@ -103,15 +86,14 @@ public class AutoRefreshMojo extends AbstractSiteRenderingMojo {
 
         try {
             List<Locale> localesList = getLocales();
+            warnReportsNotSupported(generateReports);
 
             // Initial full render
             for (Locale locale : localesList) {
                 getLog().info("Rendering site for "
                         + (!locale.equals(SiteTool.DEFAULT_LOCALE) ? "locale '" + locale + "'" : "default locale"));
                 File localeOutputDirectory = getOutputDirectory(locale);
-                List<MavenReportExecution> reports =
-                        generateReports ? getReports(localeOutputDirectory) : Collections.emptyList();
-                renderSite(locale, reports, localesList, localeOutputDirectory);
+                renderSite(locale, localesList, localeOutputDirectory);
             }
 
             // Set up file watching
@@ -153,7 +135,7 @@ public class AutoRefreshMojo extends AbstractSiteRenderingMojo {
                 getLog().info("Watching for changes in \"" + generatedSiteDirectory + "\"");
             }
 
-            if (!mavenSession.getSettings().isInteractiveMode()) {
+            if (!session.getSettings().isInteractiveMode()) {
                 getLog().info(
                                 "Auto-refresh: non-interactive mode detected, skipping file watching after initial render.");
             } else {
@@ -163,18 +145,18 @@ public class AutoRefreshMojo extends AbstractSiteRenderingMojo {
                 try {
                     prompter.prompt(System.lineSeparator());
                 } catch (PrompterException e) {
-                    throw new MojoExecutionException("Error waiting for user input", e);
+                    throw new MojoException("Error waiting for user input", e);
                 }
 
                 monitor.stop();
                 getLog().info("Auto-refresh stopped.");
             }
         } catch (RendererException e) {
-            throw new MojoExecutionException("Failed to render site", e);
+            throw new MojoException("Failed to render site", e);
         } catch (IOException e) {
-            throw new MojoExecutionException("Error during site generation", e);
+            throw new MojoException("Error during site generation", e);
         } catch (Exception e) {
-            throw new MojoExecutionException("Error in file monitor", e);
+            throw new MojoException("Error in file monitor", e);
         }
     }
 
@@ -244,7 +226,7 @@ public class AutoRefreshMojo extends AbstractSiteRenderingMojo {
                 context.setInputEncoding(getInputEncoding());
                 context.setOutputEncoding(getOutputEncoding());
 
-                Map<String, DocumentRenderer> documents = locateDocuments(context, Collections.emptyList(), locale);
+                Map<String, DocumentRenderer> documents = locateDocuments(context, locale);
 
                 // find only the document(s) whose source matches the changed file
                 List<DocumentRenderer> affected = new ArrayList<>();
@@ -262,10 +244,10 @@ public class AutoRefreshMojo extends AbstractSiteRenderingMojo {
 
                 if (affected.isEmpty()) {
                     getLog().debug("No matching Doxia document found for \"" + changedFile + "\", re-rendering all.");
-                    siteRenderer.render(documents.values(), context, localeOutputDirectory);
+                    getSiteRenderer().render(documents.values(), context, localeOutputDirectory);
                 } else {
                     getLog().info("Re-rendering " + affected.size() + " affected document(s).");
-                    siteRenderer.render(affected, context, localeOutputDirectory);
+                    getSiteRenderer().render(affected, context, localeOutputDirectory);
                 }
             }
             getLog().info("Re-render complete.");
@@ -274,26 +256,26 @@ public class AutoRefreshMojo extends AbstractSiteRenderingMojo {
         }
     }
 
-    private void renderSite(
-            Locale locale, List<MavenReportExecution> reports, List<Locale> supportedLocales, File outputDirectory)
-            throws IOException, RendererException, MojoFailureException, MojoExecutionException {
+    private void renderSite(Locale locale, List<Locale> supportedLocales, File outputDirectory)
+            throws IOException, RendererException {
         SiteRenderingContext context = createSiteRenderingContext(locale);
         context.addSiteLocales(supportedLocales);
         context.setInputEncoding(getInputEncoding());
         context.setOutputEncoding(getOutputEncoding());
 
-        Map<String, DocumentRenderer> documents = locateDocuments(context, reports, locale);
+        Map<String, DocumentRenderer> documents = locateDocuments(context, locale);
 
-        siteRenderer.copyResources(context, outputDirectory);
-        siteRenderer.render(documents.values(), context, outputDirectory);
+        getSiteRenderer().copyResources(context, outputDirectory);
+        getSiteRenderer().render(documents.values(), context, outputDirectory);
     }
 
     private File getOutputDirectory(Locale locale) {
         File file;
+        File siteOutputDirectory = resolveOutputDirectory(outputDirectory);
         if (!locale.equals(SiteTool.DEFAULT_LOCALE)) {
-            file = new File(outputDirectory, locale.toString());
+            file = new File(siteOutputDirectory, locale.toString());
         } else {
-            file = outputDirectory;
+            file = siteOutputDirectory;
         }
         if (!file.exists()) {
             file.mkdirs();

@@ -18,21 +18,17 @@
  */
 package org.apache.maven.plugins.site.descriptor;
 
-import javax.inject.Inject;
-
 import java.io.File;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.io.Writer;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 import org.apache.maven.doxia.site.SiteModel;
-import org.apache.maven.doxia.site.inheritance.SiteModelInheritanceAssembler;
 import org.apache.maven.doxia.site.io.xpp3.SiteXpp3Writer;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugin.MojoFailureException;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
 import org.codehaus.plexus.util.xml.PrettyPrintXMLWriter;
 import org.codehaus.plexus.util.xml.XMLWriter;
 import org.codehaus.plexus.util.xml.XmlStreamWriter;
@@ -46,7 +42,7 @@ import org.codehaus.plexus.util.xml.XmlWriterUtil;
  *
  * @since 2.2
  */
-@Mojo(name = "effective-site", requiresReports = true)
+@Mojo(name = "effective-site")
 public class EffectiveSiteMojo extends AbstractSiteDescriptorMojo {
     /**
      * Optional parameter to write the output of this help in a given file, instead of writing to the console.
@@ -57,16 +53,11 @@ public class EffectiveSiteMojo extends AbstractSiteDescriptorMojo {
     @Parameter(property = "output")
     protected File output;
 
-    @Inject
-    public EffectiveSiteMojo(SiteModelInheritanceAssembler assembler) {
-        super(assembler);
-    }
-
     /**
      * {@inheritDoc}
      */
     @Override
-    public void execute() throws MojoExecutionException, MojoFailureException {
+    protected void doExecute() {
         SiteModel siteModel = prepareSiteModel(getLocales().get(0));
 
         StringWriter w = new StringWriter();
@@ -83,7 +74,7 @@ public class EffectiveSiteMojo extends AbstractSiteDescriptorMojo {
             try {
                 writeXmlFile(output, effectiveSite);
             } catch (IOException e) {
-                throw new MojoExecutionException("Cannot write effective site descriptor to output: " + output, e);
+                throw new MojoException("Cannot write effective site descriptor to output: " + output, e);
             }
 
             if (getLog().isInfoEnabled()) {
@@ -134,7 +125,7 @@ public class EffectiveSiteMojo extends AbstractSiteDescriptorMojo {
         XmlWriterUtil.writeLineBreak(writer);
     }
 
-    private void writeEffectiveSite(SiteModel siteModel, XMLWriter writer) throws MojoExecutionException {
+    private void writeEffectiveSite(SiteModel siteModel, XMLWriter writer) throws MojoException {
         String effectiveSite;
 
         StringWriter sWriter = new StringWriter();
@@ -142,7 +133,7 @@ public class EffectiveSiteMojo extends AbstractSiteDescriptorMojo {
         try {
             siteWriter.write(sWriter, siteModel);
         } catch (IOException e) {
-            throw new MojoExecutionException("Cannot serialize site descriptor to XML", e);
+            throw new MojoException("Cannot serialize site descriptor to XML", e);
         }
 
         effectiveSite = sWriter.toString();

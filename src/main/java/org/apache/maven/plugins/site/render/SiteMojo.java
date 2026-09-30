@@ -18,35 +18,23 @@
  */
 package org.apache.maven.plugins.site.render;
 
-import javax.inject.Inject;
-
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 
-import org.apache.maven.doxia.site.inheritance.SiteModelInheritanceAssembler;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 import org.apache.maven.doxia.siterenderer.DocumentRenderer;
 import org.apache.maven.doxia.siterenderer.DoxiaDocumentRenderer;
 import org.apache.maven.doxia.siterenderer.RendererException;
-import org.apache.maven.doxia.siterenderer.SiteRenderer;
 import org.apache.maven.doxia.siterenderer.SiteRenderingContext;
 import org.apache.maven.doxia.tools.SiteTool;
-import org.apache.maven.execution.MavenSession;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugin.MojoFailureException;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
-import org.apache.maven.plugins.annotations.ResolutionScope;
-import org.apache.maven.project.MavenProject;
-import org.apache.maven.reporting.MavenReportException;
-import org.apache.maven.reporting.exec.MavenReportExecution;
-import org.apache.maven.reporting.exec.MavenReportExecutor;
 import org.apache.maven.shared.utils.logging.MessageBuilder;
 
 import static org.apache.maven.shared.utils.logging.MessageUtils.buffer;
@@ -62,12 +50,12 @@ import static org.apache.maven.shared.utils.logging.MessageUtils.buffer;
  * @author <a href="mailto:vincent.siveton@gmail.com">Vincent Siveton</a>
  *
  */
-@Mojo(name = "site", requiresDependencyResolution = ResolutionScope.TEST, requiresReports = true, threadSafe = true)
+@Mojo(name = "site")
 public class SiteMojo extends AbstractSiteRenderingMojo {
     /**
      * Directory where the project sites and report distributions will be generated (as html/css/...).
      */
-    @Parameter(property = "siteOutputDirectory", defaultValue = "${project.reporting.outputDirectory}")
+    @Parameter(property = "siteOutputDirectory")
     protected File outputDirectory;
 
     /**
@@ -85,19 +73,11 @@ public class SiteMojo extends AbstractSiteRenderingMojo {
     @Parameter(property = "validate", defaultValue = "false")
     private boolean validate;
 
-    @Inject
-    public SiteMojo(
-            SiteModelInheritanceAssembler assembler,
-            SiteRenderer siteRenderer,
-            MavenReportExecutor mavenReportExecutor) {
-        super(assembler, siteRenderer, mavenReportExecutor);
-    }
-
     /**
      * {@inheritDoc}
      */
     @Override
-    public void execute() throws MojoExecutionException, MojoFailureException {
+    protected void doExecute() throws IOException {
         if (skip) {
             getLog().info("maven.site.skip = true: Skipping site generation");
             return;
@@ -111,6 +91,7 @@ public class SiteMojo extends AbstractSiteRenderingMojo {
 
         try {
             List<Locale> localesList = getLocales();
+            warnReportsNotSupported(generateReports);
 
             for (Locale locale : localesList) {
                 getLog().info("Rendering site for "
@@ -120,24 +101,17 @@ public class SiteMojo extends AbstractSiteRenderingMojo {
                                                 : "default locale"))
                                 .build());
                 File outputDirectory = getOutputDirectory(locale);
-                List<MavenReportExecution> reports =
-                        generateReports ? getReports(outputDirectory) : Collections.emptyList();
-                renderLocale(locale, reports, localesList, outputDirectory);
+                renderLocale(locale, localesList, outputDirectory);
             }
         } catch (RendererException e) {
-            if (e.getCause() instanceof MavenReportException) {
-                // issue caused by report, not really by Doxia Site Renderer
-                throw new MojoExecutionException(e.getMessage(), e.getCause());
-            }
-            throw new MojoExecutionException("Failed to render site", e);
+            throw new MojoException("Failed to render site", e);
         } catch (IOException e) {
-            throw new MojoExecutionException("Error during site generation", e);
+            throw new MojoException("Error during site generation", e);
         }
     }
 
-    private void renderLocale(
-            Locale locale, List<MavenReportExecution> reports, List<Locale> supportedLocales, File outputDirectory)
-            throws IOException, RendererException, MojoFailureException, MojoExecutionException {
+    private void renderLocale(Locale locale, List<Locale> supportedLocales, File outputDirectory)
+            throws IOException, RendererException {
         SiteRenderingContext context = createSiteRenderingContext(locale);
         context.addSiteLocales(supportedLocales);
         context.setInputEncoding(getInputEncoding());
@@ -148,13 +122,13 @@ public class SiteMojo extends AbstractSiteRenderingMojo {
         }
 
         // locate all Doxia documents first
-        Map<String, DocumentRenderer> documents = locateDocuments(context, reports, locale);
+        Map<String, DocumentRenderer> documents = locateDocuments(context, locale);
 
         // copy resources
-        siteRenderer.copyResources(context, outputDirectory);
+        getSiteRenderer().copyResources(context, outputDirectory);
 
         getLog().info(buffer().a("Rendering content with ")
-                .strong(context.getSkin().getId() + " skin")
+                .strong(context.getSkin().key() + " skin")
                 .build());
 
         // and finally render Doxia documents
@@ -229,7 +203,7 @@ public class SiteMojo extends AbstractSiteRenderingMojo {
 
             getLog().info(mb.build());
 
-            siteRenderer.render(doxiaDocuments, context, outputDirectory);
+            getSiteRenderer().render(doxiaDocuments, context, outputDirectory);
         }
 
         if (generatedDoxiaDocuments.size() > 0) {
@@ -251,7 +225,7 @@ public class SiteMojo extends AbstractSiteRenderingMojo {
 
             getLog().info(mb.build());
 
-            siteRenderer.render(generatedDoxiaDocuments, context, outputDirectory);
+            getSiteRenderer().render(generatedDoxiaDocuments, context, outputDirectory);
         }
 
         return nonDoxiaDocuments;
@@ -269,7 +243,7 @@ public class SiteMojo extends AbstractSiteRenderingMojo {
 
         for (DocumentRenderer doc : documents) {
             String type;
-            if (doc instanceof ReportDocumentRenderer || doc instanceof SitePluginReportDocumentRenderer) {
+            if (doc instanceof SitePluginReportDocumentRenderer) {
                 type = "report";
             } else {
                 type = "other";
@@ -296,16 +270,17 @@ public class SiteMojo extends AbstractSiteRenderingMojo {
                 getLog().info(mb.build());
             }
 
-            siteRenderer.render(documents, context, outputDirectory);
+            getSiteRenderer().render(documents, context, outputDirectory);
         }
     }
 
     private File getOutputDirectory(Locale locale) {
         File file;
+        File siteOutputDirectory = resolveOutputDirectory(outputDirectory);
         if (!locale.equals(SiteTool.DEFAULT_LOCALE)) {
-            file = new File(outputDirectory, locale.toString());
+            file = new File(siteOutputDirectory, locale.toString());
         } else {
-            file = outputDirectory;
+            file = siteOutputDirectory;
         }
 
         // Safety
@@ -314,13 +289,5 @@ public class SiteMojo extends AbstractSiteRenderingMojo {
         }
 
         return file;
-    }
-
-    public MavenProject getProject() {
-        return project;
-    }
-
-    public MavenSession getSession() {
-        return mavenSession;
     }
 }
