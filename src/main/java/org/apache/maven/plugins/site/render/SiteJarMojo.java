@@ -18,24 +18,16 @@
  */
 package org.apache.maven.plugins.site.render;
 
-import javax.inject.Inject;
-
 import java.io.File;
 import java.io.IOException;
 
-import org.apache.maven.archiver.MavenArchiveConfiguration;
-import org.apache.maven.archiver.MavenArchiver;
-import org.apache.maven.artifact.DependencyResolutionRequiredException;
-import org.apache.maven.doxia.site.inheritance.SiteModelInheritanceAssembler;
-import org.apache.maven.doxia.siterenderer.SiteRenderer;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugin.MojoFailureException;
-import org.apache.maven.plugins.annotations.LifecyclePhase;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
-import org.apache.maven.plugins.annotations.ResolutionScope;
-import org.apache.maven.project.MavenProjectHelper;
-import org.apache.maven.reporting.exec.MavenReportExecutor;
+import org.apache.maven.api.ProducedArtifact;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+import org.apache.maven.shared.archiver.MavenArchiveConfiguration;
+import org.apache.maven.shared.archiver.MavenArchiver;
+import org.apache.maven.shared.archiver.MavenArchiverException;
 import org.codehaus.plexus.archiver.ArchiverException;
 import org.codehaus.plexus.archiver.jar.JarArchiver;
 import org.codehaus.plexus.archiver.jar.ManifestException;
@@ -48,12 +40,7 @@ import org.codehaus.plexus.archiver.jar.ManifestException;
  * @since 2.0-beta-6
  */
 // MSITE-665: requiresDependencyResolution workaround for MPLUGIN-253
-@Mojo(
-        name = "jar",
-        defaultPhase = LifecyclePhase.PACKAGE,
-        requiresDependencyResolution = ResolutionScope.TEST,
-        requiresReports = true,
-        threadSafe = true)
+@Mojo(name = "jar", defaultPhase = "package")
 public class SiteJarMojo extends SiteMojo {
     private static final String[] DEFAULT_ARCHIVE_EXCLUDES = new String[] {};
 
@@ -62,14 +49,14 @@ public class SiteJarMojo extends SiteMojo {
     /**
      * Specifies the directory where the generated jar file will be put.
      */
-    @Parameter(property = "project.build.directory", required = true)
+    @Parameter(defaultValue = "${project.build.directory}", required = true)
     private String jarOutputDirectory;
 
     /**
      * Specifies the filename that will be used for the generated jar file.
      * Please note that "-site" will be appended to the file name.
      */
-    @Parameter(property = "project.build.finalName", required = true)
+    @Parameter(defaultValue = "${project.build.finalName}", required = true)
     private String finalName;
 
     /**
@@ -105,53 +92,34 @@ public class SiteJarMojo extends SiteMojo {
     @Parameter
     private String[] archiveExcludes;
 
-    /**
-     * Used for attaching the artifact in the project.
-     */
-    private final MavenProjectHelper projectHelper;
-
-    /**
-     * The Jar archiver.
-     *
-     * @since 3.1
-     */
-    private final JarArchiver jarArchiver;
-
-    @Inject
-    public SiteJarMojo(
-            SiteModelInheritanceAssembler assembler,
-            SiteRenderer siteRenderer,
-            MavenReportExecutor mavenReportExecutor,
-            MavenProjectHelper projectHelper,
-            JarArchiver jarArchiver) {
-        super(assembler, siteRenderer, mavenReportExecutor);
-        this.projectHelper = projectHelper;
-        this.jarArchiver = jarArchiver;
-    }
-
-    /**
-     * @see org.apache.maven.plugin.Mojo#execute()
-     */
     @Override
-    public void execute() throws MojoExecutionException, MojoFailureException {
+    protected void doExecute() throws IOException {
         if (skip) {
             getLog().info("maven.site.skip = true: Skipping jar generation");
             return;
         }
 
-        super.execute();
+        super.doExecute();
 
         try {
-            File outputFile =
-                    createArchive(outputDirectory, finalName + "-" + getClassifier() + "." + getArtifactType());
+            File outputFile = createArchive(
+                    resolveOutputDirectory(outputDirectory),
+                    finalName + "-" + getClassifier() + "." + getArtifactType());
 
             if (attach) {
-                projectHelper.attachArtifact(project, getArtifactType(), getClassifier(), outputFile);
+                ProducedArtifact artifact = session.createProducedArtifact(
+                        project.getGroupId(),
+                        project.getArtifactId(),
+                        project.getVersion(),
+                        getClassifier(),
+                        null,
+                        getArtifactType());
+                getProjectManager().attachArtifact(project, artifact, outputFile.toPath());
             } else {
                 getLog().info("NOT adding site jar to the list of attached artifacts.");
             }
-        } catch (ArchiverException | IOException | ManifestException | DependencyResolutionRequiredException e) {
-            throw new MojoExecutionException("Error while creating archive", e);
+        } catch (ArchiverException | MavenArchiverException | IOException | ManifestException e) {
+            throw new MojoException("Error while creating archive", e);
         }
     }
 
@@ -175,18 +143,18 @@ public class SiteJarMojo extends SiteMojo {
      * @throws DependencyResolutionRequiredException
      */
     private File createArchive(File siteDirectory, String jarFilename)
-            throws ArchiverException, IOException, ManifestException, DependencyResolutionRequiredException {
+            throws ArchiverException, IOException, ManifestException, MavenArchiverException {
         File siteJar = new File(jarOutputDirectory, jarFilename);
 
         MavenArchiver archiver = new MavenArchiver();
         archiver.setCreatedBy("Maven Site Plugin", "org.apache.maven.plugins", "maven-site-plugin");
 
-        archiver.setArchiver(this.jarArchiver);
+        archiver.setArchiver(new JarArchiver());
 
         archiver.setOutputFile(siteJar);
 
         // configure for Reproducible Builds based on outputTimestamp value
-        archiver.configureReproducibleBuild(outputTimestamp);
+        archiver.configureReproducibleBuild(getOutputTimestamp());
 
         if (!siteDirectory.isDirectory()) {
             getLog().warn("JAR will be empty - no content was marked for inclusion!");
@@ -194,7 +162,7 @@ public class SiteJarMojo extends SiteMojo {
             archiver.getArchiver().addDirectory(siteDirectory, getArchiveIncludes(), getArchiveExcludes());
         }
 
-        archiver.createArchive(getSession(), getProject(), archive);
+        archiver.createArchive(session, project, archive);
 
         return siteJar;
     }

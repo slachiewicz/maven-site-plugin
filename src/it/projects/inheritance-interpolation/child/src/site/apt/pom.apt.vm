@@ -50,9 +50,9 @@ POM Inheritance and Interpolation
 || level || artifactId || <<<prop>>> property value ||
 *-------+------+--------+
 #foreach( $i in [1..4] )
-#if( $p )|    $i| <<<$p.artifactId>>> | <<<$p.properties.getProperty("prop")>>>
+#if( $p )|    $i| <<<$p.artifactId>>> | <<<$p.properties.get("prop")>>>
 *-------+------+--------+
-#set( $p = $p.parent )#end
+#set( $p = false )#end
 #end
 
 
@@ -73,7 +73,7 @@ POM Inheritance and Interpolation
 #foreach( $i in [1..4] )
 #if( $p )|    $i| <<<$p.artifactId>>> | <<<$p.url.replace('{', '\{')>>>
 *-------+------+--------+
-#set( $p = $p.parent )#end
+#set( $p = false )#end
 #end
 
 * Property from Settings
@@ -87,5 +87,5 @@ POM Inheritance and Interpolation
 #foreach( $i in [1..4] )
 #if( $p )|    $i| <<<$p.artifactId>>> | <<<$p.distributionManagement.site.url>>>
 *-------+------+--------+
-#set( $p = $p.parent )#end
+#set( $p = false )#end
 #end

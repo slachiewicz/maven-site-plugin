@@ -19,18 +19,14 @@
  */
 
 // POM inheritance+interpolation
+// Maven 4: the Velocity $project is the immutable model, which has no parent project to walk up to,
+// so only the child level is asserted
 content = new File( basedir, 'child/target/generated-site/processed/pom.apt' ).text;
 
 // normal field check
-assert content.contains( "<<<project.artifactId = 'repo-parent'>>>" );
-assert content.contains( "<<<project.artifactId = 'relative-parent'>>>" );
-assert content.contains( "<<<project.artifactId = 'reactor-parent'>>>" );
 assert content.contains( "<<<project.artifactId = 'child'>>>" );
 
 // url check (with its inheritance)
-assert content.contains( '<<<http://maven.apache.org/$\\{property}>>>' ); // repo-parent
-assert content.contains( '<<<http://maven.apache.org/$\\{property}/relative-parent>>>' ); // relative-parent
-assert content.contains( '<<<http://maven.apache.org/prop-value-from-reactor-parent/relative-parent/reactor-parent>>>' ); // reactor-parent
 assert content.contains( '<<<http://maven.apache.org/prop-value-from-child/relative-parent/reactor-parent/child>>>' ); // child
 
 // site.xml Site Model inheritance+interpolation

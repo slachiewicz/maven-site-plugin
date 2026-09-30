@@ -18,9 +18,9 @@
  */
 package org.apache.maven.plugins.site.deploy;
 
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.Parameter;
-import org.apache.maven.project.MavenProject;
+import org.apache.maven.api.Project;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Parameter;
 
 /**
  * Abstract base class for staging mojos.
@@ -49,9 +49,9 @@ public abstract class AbstractStagingMojo extends AbstractDeployMojo {
      * expectations, <code>topSiteURL</code> can be configured: it will be used instead.
      */
     @Override
-    protected String determineTopDistributionManagementSiteUrl() throws MojoExecutionException {
+    protected String determineTopDistributionManagementSiteUrl() throws MojoException {
         if (topSiteURL == null || topSiteURL.isEmpty()) {
-            MavenProject topProject = getTopLevelProject(project);
+            Project topProject = getTopLevelProject(project);
             String url = getSite(topProject).getUrl();
 
             getLog().debug("staging top distributionManagement.site.url found in " + topProject.getId()

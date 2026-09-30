@@ -19,20 +19,15 @@
 package org.apache.maven.plugins.site.descriptor;
 
 import java.io.File;
-import java.util.List;
 import java.util.Locale;
 
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Parameter;
 import org.apache.maven.doxia.site.SiteModel;
 import org.apache.maven.doxia.site.inheritance.SiteModelInheritanceAssembler;
 import org.apache.maven.doxia.tools.SiteTool;
 import org.apache.maven.doxia.tools.SiteToolException;
-import org.apache.maven.execution.MavenSession;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.site.AbstractSiteMojo;
-import org.apache.maven.project.MavenProject;
-import org.eclipse.aether.RepositorySystemSession;
-import org.eclipse.aether.repository.RemoteRepository;
 
 /**
  * Abstract class to compute effective site model for site descriptors.
@@ -42,37 +37,13 @@ import org.eclipse.aether.repository.RemoteRepository;
 public abstract class AbstractSiteDescriptorMojo extends AbstractSiteMojo {
 
     /**
-     * The reactor projects.
-     */
-    @Parameter(defaultValue = "${reactorProjects}", required = true, readonly = true)
-    protected List<MavenProject> reactorProjects;
-
-    @Parameter(defaultValue = "${repositorySystemSession}", required = true, readonly = true)
-    protected RepositorySystemSession repoSession;
-
-    /**
-     * The current Maven session.
-     */
-    @Parameter(defaultValue = "${session}", readonly = true)
-    protected MavenSession mavenSession;
-
-    /**
-     * Remote project repositories used for the project.
-     *
-     * todo this is used for site descriptor resolution - it should relate to the actual project but for some reason
-     *       they are not always filled in
-     */
-    @Parameter(defaultValue = "${project.remoteProjectRepositories}", readonly = true)
-    protected List<RemoteRepository> remoteProjectRepositories;
-
-    /**
      * Directory containing the <code>site.xml</code> file and the source for handwritten docs (one directory
      * per Doxia-source-supported markup types):
      * see <a href="/doxia/references/index.html">Doxia Markup Languages References</a>.
      *
      * @since 2.3
      */
-    @Parameter(defaultValue = "${basedir}/src/site")
+    @Parameter(defaultValue = "${project.basedir}/src/site")
     protected File siteDirectory;
 
     /**
@@ -90,29 +61,27 @@ public abstract class AbstractSiteDescriptorMojo extends AbstractSiteMojo {
     /**
      * The component for assembling site model inheritance.
      */
-    private final SiteModelInheritanceAssembler assembler;
-
-    protected AbstractSiteDescriptorMojo(SiteModelInheritanceAssembler assembler) {
-        this.assembler = assembler;
+    protected SiteModelInheritanceAssembler getAssembler() {
+        return lookup(SiteModelInheritanceAssembler.class);
     }
 
-    protected SiteModel prepareSiteModel(Locale locale) throws MojoExecutionException {
+    protected SiteModel prepareSiteModel(Locale locale) {
         SiteModel siteModel;
         try {
-            siteModel = siteTool.getSiteModel(
-                    siteDirectory,
-                    locale,
-                    mavenSession.getRequest(),
-                    project,
-                    reactorProjects,
-                    repoSession,
-                    remoteProjectRepositories);
+            siteModel = getSiteTool()
+                    .getSiteModel(
+                            siteDirectory,
+                            locale,
+                            getProjectWithParents(),
+                            session.getProjects(),
+                            session,
+                            getRemoteProjectRepositories());
         } catch (SiteToolException e) {
-            throw new MojoExecutionException("Failed to obtain site model", e);
+            throw new MojoException("Failed to obtain site model", e);
         }
 
         if (relativizeSiteLinks) {
-            final String url = project.getUrl();
+            final String url = project.getModel().getUrl();
 
             if (url == null) {
                 getLog().warn("No project URL defined - site links will not be relativized!");
@@ -121,7 +90,7 @@ public abstract class AbstractSiteDescriptorMojo extends AbstractSiteMojo {
                 final String localeUrl = !locale.equals(SiteTool.DEFAULT_LOCALE) ? append(url, locale.toString()) : url;
 
                 getLog().info("Relativizing site links with respect to localized project URL: " + localeUrl);
-                assembler.resolvePaths(siteModel, localeUrl);
+                getAssembler().resolvePaths(siteModel, localeUrl);
             }
         }
         return siteModel;

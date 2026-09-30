@@ -18,9 +18,9 @@
  */
 package org.apache.maven.plugins.site.deploy;
 
-import org.apache.maven.model.Site;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.Mojo;
+import org.apache.maven.api.model.Site;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
 
 /**
  * Deploys the generated site using <a href="/wagon/">wagon supported
@@ -47,7 +47,7 @@ public class SiteDeployMojo extends AbstractDeployMojo {
      * Deploy distribution site url is directly the current project value.
      */
     @Override
-    protected String determineTopDistributionManagementSiteUrl() throws MojoExecutionException {
+    protected String determineTopDistributionManagementSiteUrl() throws MojoException {
         return getDeploySite().getUrl();
     }
 
@@ -55,7 +55,7 @@ public class SiteDeployMojo extends AbstractDeployMojo {
      * Deploy directly to the current project's distribution management site.
      */
     @Override
-    protected Site determineDeploySite() throws MojoExecutionException {
+    protected Site determineDeploySite() throws MojoException {
         return getSite(getTopLevelProject(project));
     }
 }

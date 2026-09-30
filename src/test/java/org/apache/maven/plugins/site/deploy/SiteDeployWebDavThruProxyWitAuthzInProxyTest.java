@@ -18,49 +18,26 @@
  */
 package org.apache.maven.plugins.site.deploy;
 
-import javax.inject.Inject;
-
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.maven.api.di.Provides;
-import org.apache.maven.api.plugin.testing.InjectMojo;
-import org.apache.maven.api.plugin.testing.MojoParameter;
-import org.apache.maven.api.plugin.testing.MojoTest;
-import org.apache.maven.execution.DefaultMavenExecutionRequest;
-import org.apache.maven.execution.MavenExecutionRequest;
-import org.apache.maven.execution.MavenSession;
-import org.apache.maven.plugins.site.stubs.SiteMavenProjectStub;
-import org.apache.maven.project.MavenProject;
-import org.apache.maven.settings.Proxy;
-import org.apache.maven.settings.Settings;
+import org.apache.maven.api.Project;
+import org.apache.maven.api.settings.Proxy;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.when;
 
-@MojoTest
 class SiteDeployWebDavThruProxyWitAuthzInProxyTest {
     @TempDir
     private static File directory;
-
-    @Inject
-    private MavenProject project;
-
-    @Inject
-    private Settings settings;
-
-    @Inject
-    private MavenSession mavenSession;
 
     private static SimpleDavServerHandler simpleDavServerHandler;
     private static File siteTargetPath;
@@ -83,11 +60,15 @@ class SiteDeployWebDavThruProxyWitAuthzInProxyTest {
         simpleDavServerHandler.stop();
     }
 
-    @InjectMojo(goal = "deploy", pom = "src/test/resources/unit/deploy-dav/pom.xml")
-    @MojoParameter(name = "inputDirectory", value = "target/site")
     @Test
-    public void davDeployThruProxyWitAuthzInProxy(SiteDeployMojo mojo) throws Exception {
-        when(mavenSession.getRequest()).thenReturn(request());
+    public void davDeployThruProxyWitAuthzInProxy() throws Exception {
+        // olamy, Note : toto is something like foo or bar for french folks :-)
+        Project project = DeployTestSupport.project("deploy-dav", "dav:http://toto.com/site/", null);
+
+        SiteDeployMojo mojo = new SiteDeployMojo();
+        DeployTestSupport.prepare(mojo, project, DeployTestSupport.session(proxy()));
+        DeployTestSupport.set(mojo, "inputDirectory", new File("src/test/resources/unit/deploy-dav/target/site"));
+        DeployTestSupport.set(mojo, "chmod", false);
 
         mojo.execute();
 
@@ -96,42 +77,17 @@ class SiteDeployWebDavThruProxyWitAuthzInProxyTest {
         assertAtLeastOneRequestContainsHeader(simpleDavServerHandler.httpRequests, "proxy-authorization");
     }
 
-    @Provides
-    private MavenProject project() {
-        SiteMavenProjectStub siteMavenProjectStub = new SiteMavenProjectStub("deploy-dav");
-        // olamy, Note : toto is something like foo or bar for french folks :-)
-        String siteUrl = "dav:http://toto.com/site/";
-        siteMavenProjectStub.getDistributionManagement().getSite().setUrl(siteUrl);
-
-        return siteMavenProjectStub;
-    }
-
-    @Provides
-    private Settings settings() {
-        Settings settings = new Settings();
-
-        settings.addProxy(proxy());
-        return settings;
-    }
-
-    private MavenExecutionRequest request() {
-        MavenExecutionRequest request = new DefaultMavenExecutionRequest();
-        request.setProxies(Arrays.asList(proxy()));
-        return request;
-    }
-
     private Proxy proxy() {
-        Proxy proxy = new Proxy();
-
         // dummy proxy
-        proxy.setActive(true);
-        proxy.setHost("localhost");
-        proxy.setPort(simpleDavServerHandler.getPort());
-        proxy.setProtocol("dav");
-        proxy.setUsername("foo");
-        proxy.setPassword("titi");
-        proxy.setNonProxyHosts("www.google.com|*.somewhere.com");
-        return proxy;
+        return Proxy.newBuilder()
+                .activeString("true")
+                .host("localhost")
+                .portString(String.valueOf(simpleDavServerHandler.getPort()))
+                .protocol("dav")
+                .username("foo")
+                .password("titi")
+                .nonProxyHosts("www.google.com|*.somewhere.com")
+                .build();
     }
 
     private static File newFolder(File root, String... subDirs) throws IOException {

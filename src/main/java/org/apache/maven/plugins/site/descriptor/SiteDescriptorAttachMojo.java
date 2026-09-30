@@ -18,19 +18,15 @@
  */
 package org.apache.maven.plugins.site.descriptor;
 
-import javax.inject.Inject;
-
 import java.io.File;
 import java.io.IOException;
 import java.util.Locale;
 import java.util.Objects;
 
-import org.apache.maven.doxia.site.inheritance.SiteModelInheritanceAssembler;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.LifecyclePhase;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
-import org.apache.maven.project.MavenProjectHelper;
+import org.apache.maven.api.ProducedArtifact;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 import org.codehaus.plexus.util.FileUtils;
 import org.codehaus.plexus.util.PathTool;
 
@@ -46,11 +42,8 @@ import org.codehaus.plexus.util.PathTool;
  *
  * @since 2.0
  */
-@Mojo(name = "attach-descriptor", defaultPhase = LifecyclePhase.PACKAGE, threadSafe = true)
+@Mojo(name = "attach-descriptor", defaultPhase = "package")
 public class SiteDescriptorAttachMojo extends AbstractSiteDescriptorMojo {
-    @Parameter(property = "basedir", required = true, readonly = true)
-    private File basedir;
-
     /**
      * Attach site descriptor only if packaging is pom.
      * @since 3.0
@@ -58,30 +51,18 @@ public class SiteDescriptorAttachMojo extends AbstractSiteDescriptorMojo {
     @Parameter(defaultValue = "true")
     private boolean pomPackagingOnly;
 
-    /**
-     * Maven ProjectHelper.
-     *
-     * @since 2.1.1
-     */
-    private final MavenProjectHelper projectHelper;
-
-    @Inject
-    public SiteDescriptorAttachMojo(SiteModelInheritanceAssembler assembler, MavenProjectHelper projectHelper) {
-        super(assembler);
-        this.projectHelper = projectHelper;
-    }
-
     @Override
-    public void execute() throws MojoExecutionException {
-        if (pomPackagingOnly && !"pom".equals(project.getPackaging())) {
+    protected void doExecute() {
+        String packaging = project.getModel().getPackaging();
+        if (pomPackagingOnly && !"pom".equals(packaging)) {
             // https://issues.apache.org/jira/browse/MSITE-597
-            getLog().info("Skipping because packaging '" + project.getPackaging() + "' is not pom.");
+            getLog().info("Skipping because packaging '" + packaging + "' is not pom.");
             return;
         }
 
         boolean attachedSiteDescriptor = false;
         for (Locale locale : getLocales()) {
-            File descriptorFile = siteTool.getSiteDescriptor(siteDirectory, locale);
+            File descriptorFile = getSiteTool().getSiteDescriptor(siteDirectory, locale);
 
             if (descriptorFile.exists()) {
                 attachedSiteDescriptor = true;
@@ -98,13 +79,21 @@ public class SiteDescriptorAttachMojo extends AbstractSiteDescriptorMojo {
                     // Attach the site descriptor
                     // plexus-utils returns null (maven-shared-utils returned "") for paths on different Windows drives
                     String relativePath = Objects.toString(
-                            PathTool.getRelativeFilePath(basedir.getAbsolutePath(), descriptorFile.getAbsolutePath()),
+                            PathTool.getRelativeFilePath(
+                                    project.getBasedir().toAbsolutePath().toString(), descriptorFile.getAbsolutePath()),
                             "");
                     getLog().info("Attaching '" + relativePath + "' site descriptor with classifier '" + classifier
                             + "'.");
-                    projectHelper.attachArtifact(project, "xml", classifier, targetDescriptorFile);
+                    ProducedArtifact artifact = session.createProducedArtifact(
+                            project.getGroupId(),
+                            project.getArtifactId(),
+                            project.getVersion(),
+                            classifier,
+                            "xml",
+                            "xml");
+                    getProjectManager().attachArtifact(project, artifact, targetDescriptorFile.toPath());
                 } catch (IOException e) {
-                    throw new MojoExecutionException("Unable to copy site descriptor", e);
+                    throw new MojoException("Unable to copy site descriptor", e);
                 }
             }
         }
@@ -114,13 +103,13 @@ public class SiteDescriptorAttachMojo extends AbstractSiteDescriptorMojo {
         }
     }
 
-    private static String getClassifier(final File descriptorFile) throws MojoExecutionException {
+    private static String getClassifier(final File descriptorFile) throws MojoException {
         final int index = descriptorFile.getName().lastIndexOf('.');
 
         if (index > 0) {
             return descriptorFile.getName().substring(0, index);
         } else {
-            throw new MojoExecutionException("Unable to determine the classifier to use");
+            throw new MojoException("Unable to determine the classifier to use");
         }
     }
 }

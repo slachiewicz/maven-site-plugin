@@ -20,12 +20,11 @@ package org.apache.maven.plugins.site.deploy;
 
 import java.io.File;
 
-import org.apache.maven.model.Site;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
-import org.apache.maven.plugins.annotations.ResolutionScope;
-import org.apache.maven.project.MavenProject;
+import org.apache.maven.api.Project;
+import org.apache.maven.api.model.Site;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 
 /**
  * Deploys the generated site to a local staging or mock directory based on the site URL
@@ -41,7 +40,7 @@ import org.apache.maven.project.MavenProject;
  *
  * @since 2.0
  */
-@Mojo(name = "stage", requiresDependencyResolution = ResolutionScope.TEST)
+@Mojo(name = "stage")
 public class SiteStageMojo extends AbstractStagingMojo {
     /**
      * Staging directory location. This needs to be an absolute path, like
@@ -55,13 +54,13 @@ public class SiteStageMojo extends AbstractStagingMojo {
     private File stagingDirectory;
 
     @Override
-    public void execute() throws MojoExecutionException {
+    protected void doExecute() {
         if (skip) {
             getLog().info("maven.site.skip = true: Skipping site staging");
             return;
         }
 
-        super.execute();
+        super.doExecute();
     }
 
     @Override
@@ -70,10 +69,7 @@ public class SiteStageMojo extends AbstractStagingMojo {
     }
 
     @Override
-    protected Site determineDeploySite() throws MojoExecutionException {
-        Site staging = new Site();
-        staging.setId("stagingLocal");
-
+    protected Site determineDeploySite() throws MojoException {
         final File outputDirectory = determineStagingDirectory();
         getLog().info("Using this base directory for staging: " + outputDirectory);
 
@@ -82,9 +78,10 @@ public class SiteStageMojo extends AbstractStagingMojo {
             outputDirectory.mkdirs();
         }
 
-        staging.setUrl("file://" + outputDirectory.getAbsolutePath());
-
-        return staging;
+        return Site.newBuilder()
+                .id("stagingLocal")
+                .url("file://" + outputDirectory.getAbsolutePath())
+                .build();
     }
 
     /**
@@ -113,7 +110,10 @@ public class SiteStageMojo extends AbstractStagingMojo {
      */
     protected File getExecutionRootBuildDirectory() {
         // Find the top level project in the reactor
-        final MavenProject executionRootProject = mavenSession.getTopLevelProject();
+        final Project executionRootProject = session.getProjects().stream()
+                .filter(Project::isTopProject)
+                .findFirst()
+                .orElse(null);
 
         // Use the top level project's build directory if there is one, otherwise use this project's build directory
         final File buildDirectory;

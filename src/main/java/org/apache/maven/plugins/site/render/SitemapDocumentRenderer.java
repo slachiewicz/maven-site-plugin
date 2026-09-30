@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Locale;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.maven.api.plugin.Log;
 import org.apache.maven.doxia.sink.Sink;
 import org.apache.maven.doxia.site.Menu;
 import org.apache.maven.doxia.site.MenuItem;
@@ -33,8 +34,6 @@ import org.apache.maven.doxia.siterenderer.RendererException;
 import org.apache.maven.doxia.siterenderer.SiteRenderer;
 import org.apache.maven.doxia.siterenderer.SiteRenderingContext;
 import org.apache.maven.doxia.siterenderer.sink.SiteRendererSink;
-import org.apache.maven.plugin.MojoExecution;
-import org.apache.maven.plugin.logging.Log;
 import org.codehaus.plexus.i18n.I18N;
 
 import static org.apache.maven.shared.utils.logging.MessageUtils.buffer;
@@ -60,18 +59,14 @@ public class SitemapDocumentRenderer implements SitePluginReportDocumentRenderer
     private final Log log;
 
     public SitemapDocumentRenderer(
-            MojoExecution mojoExecution,
+            String reportMojoInfo,
             DocumentRenderingContext docRenderingContext,
             String title,
             SiteModel siteModel,
             I18N i18n,
             Log log) {
         this.docRenderingContext = docRenderingContext;
-        this.reportMojoInfo = mojoExecution.getPlugin().getArtifactId()
-                + ':'
-                + mojoExecution.getPlugin().getVersion()
-                + ':'
-                + mojoExecution.getGoal();
+        this.reportMojoInfo = reportMojoInfo;
         this.title = title;
         this.siteModel = siteModel;
         this.i18n = i18n;
